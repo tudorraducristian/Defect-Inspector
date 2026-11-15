@@ -108,3 +108,31 @@ def test_station_says_which_kind_of_machine_took_it(tmp_path):
     import sys
     write_station(tmp_path, build_station(SETTINGS, [1, 2, 3, 4]), FRAME)
     assert json.loads((tmp_path / "station.json").read_text())["camera"]["platform"] == sys.platform
+
+
+class LyingCamera:
+    """Like the station's webcam: it gives frames, but reports exposure 0 and focus 0."""
+
+    def __init__(self):
+        self.released = False
+
+    def read(self):
+        return True, np.zeros((1080, 1920, 3), np.uint8)
+
+    def get(self, prop):
+        return 0.0
+
+    def release(self):
+        self.released = True
+
+
+def test_headless_setup_keeps_measured_values(tmp_path, monkeypatch):
+    import json
+
+    import capture
+    monkeypatch.setattr(capture, "open_camera", lambda settings: LyingCamera())
+    settings = CameraSettings(1, 1920, 1080, 30, None, None, 320.0, None)
+    capture.run_setup_headless(settings, tmp_path, [603, 399, 505, 450], lock_from_camera=False)
+    camera = json.loads((tmp_path / "station.json").read_text())["camera"]
+    assert camera["focus"] == 320 and camera["exposure"] is None
+    assert camera["white_balance"] is None

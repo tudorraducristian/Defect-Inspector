@@ -211,7 +211,7 @@ def run_setup(settings, root, lock_from_camera=True):
         cv2.destroyAllWindows()
 
 
-def run_setup_headless(settings, root, roi):
+def run_setup_headless(settings, root, roi, lock_from_camera=True):
     capture = open_camera(settings)
     try:
         # The first frames still have the exposure moving.
@@ -219,7 +219,10 @@ def run_setup_headless(settings, root, roi):
             ok, background = capture.read()
             if not ok:
                 raise RuntimeError("the camera gives no frames")
-        write_station(root, build_station(_locked(settings, capture), roi), background)
+        # Values given in the command were measured; a camera that reports false ones must not replace them.
+        if lock_from_camera:
+            settings = _locked(settings, capture)
+        write_station(root, build_station(settings, roi), background)
     finally:
         capture.release()
 
@@ -330,7 +333,7 @@ def main(argv=None):
         settings = settings_from_dict(dict(measured, index=args.camera, width=args.width,
                                            height=args.height, fps=args.fps))
         if args.headless:
-            run_setup_headless(settings, root, _parse_roi(args.roi) if args.roi else None)
+            run_setup_headless(settings, root, _parse_roi(args.roi) if args.roi else None, lock_from_camera)
             return 0
         return 0 if run_setup(settings, root, lock_from_camera) else 1
 
