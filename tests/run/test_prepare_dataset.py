@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from capture import shot_path
-from prepare_dataset import DatasetError, DatasetTooSmall, make_tar, prepare
+from prepare_dataset import DatasetError, DatasetTooSmall, main, make_tar, prepare, prepare_lights
 
 FRAME = np.full((40, 60, 3), 90, np.uint8)
 ROI = [10, 5, 20, 16]
@@ -146,3 +146,47 @@ def test_tar_holds_the_dataset_format(raw_dataset, tmp_path):
         names = tar.getnames()
     assert any(re.search(r"train/good/piece-\d+_shot-\d+\.png$", name) for name in names)
     assert any(name.endswith("station.json") for name in names)
+
+
+@pytest.fixture
+def two_lights(tmp_path_factory):
+    root = tmp_path_factory.mktemp("lumini")
+    for light in ("L1", "L2"):
+        make_raw(root / light, 40)
+    return root
+
+
+def test_a_piece_is_on_the_same_side_in_every_light(two_lights, tmp_path):
+    prepare_lights(two_lights, tmp_path / "ready")
+    sides = {}
+    for part in ("train", "val", "test"):
+        for path in (tmp_path / "ready" / part / "good").glob("*.png"):
+            light, piece = path.name.split("_")[:2]
+            sides.setdefault(piece, set()).add(part)
+            assert light in ("L1", "L2")
+    assert len(sides) == 40
+    assert all(len(found) == 1 for found in sides.values())
+
+
+def test_same_name_in_two_lights_gives_two_images(two_lights, tmp_path):
+    summary = prepare_lights(two_lights, tmp_path / "ready")
+    by_light = summary["images_by_light"]
+    assert summary["lights"] == ["L1", "L2"]
+    assert by_light["L1"]["train"] == by_light["L2"]["train"] > 0
+    assert summary["images"]["train"] == 2 * by_light["L1"]["train"]
+    assert summary["images"]["test_defect"] == 2 * by_light["L1"]["test_defect"]
+
+
+def test_lights_with_different_zones_are_refused(two_lights, tmp_path):
+    (two_lights / "L2" / "station.json").write_text(
+        json.dumps({"roi": [11, 5, 20, 16], "camera": {"index": 0}}), encoding="utf-8")
+    with pytest.raises(DatasetError, match="L2"):
+        prepare_lights(two_lights, tmp_path / "ready")
+    assert not (tmp_path / "ready").exists() or not any((tmp_path / "ready").iterdir())
+
+
+def test_lights_command_writes_its_own_dataset(two_lights):
+    assert main(["--object", two_lights.name, "--data", str(two_lights.parent), "--lights"]) == 0
+    ready = two_lights.parent / (two_lights.name + "-ready")
+    assert json.loads((ready / "split.json").read_text(encoding="utf-8"))["lights"] == ["L1", "L2"]
+    assert (two_lights.parent / (two_lights.name + ".tar")).exists()
