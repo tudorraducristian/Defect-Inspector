@@ -421,3 +421,15 @@ def test_frame_at_the_old_size_waits_for_the_camera():
     for _ in range(10):
         loop.step()
     assert loop.state()["status"] == "RESULT"
+
+
+def test_a_camera_that_keeps_the_wrong_size_is_reported():
+    camera = FakeCamera(cv2.resize(PIECE, (48, 32)))
+    profile = make_profile()._replace(camera={"width": 64, "height": 64})
+    loop = InspectionLoop(camera)
+    loop.set_inspector(Inspector(profile, FakeBackend()), profile, fast_gate())
+    for _ in range(200):
+        loop.step()
+    state = loop.state()
+    assert state["status"] == "ERROR"
+    assert "48x32" in state["message"] and "64x64" in state["message"]

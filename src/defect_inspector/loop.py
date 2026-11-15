@@ -28,6 +28,8 @@ MESSAGES = {
 }
 MESSAGE_ANALYZING = "Analizez piesa."
 MESSAGE_WAITING_CAMERA = "Aștept camera."
+# About five seconds at 30 frames a second: longer than a reopening takes, so the size is not coming.
+WRONG_SIZE_FRAMES = 150
 JPEG_QUALITY = 80
 ZONE_COLOR = (0, 200, 0)
 STEP_PAUSE_S = 0.02
@@ -51,6 +53,7 @@ class InspectionLoop:
         # computed for the previous one is dropped.
         self._generation = 0
         self._last_frame_id = None
+        self._wrong_size_frames = 0
         self._inspected = False
         self._heat = None
         self._frame_id = None
@@ -118,6 +121,7 @@ class InspectionLoop:
             self._generation += 1
             self._inspected = False
             self._last_frame_id = None
+            self._wrong_size_frames = 0
         self._publish(MOVING)
 
     def set_background(self, frame):
@@ -193,8 +197,14 @@ class InspectionLoop:
             if gate is not None:
                 gate.reset()
             self._inspected = False
-            self._publish(MOVING, MESSAGE_WAITING_CAMERA)
+            self._wrong_size_frames += 1
+            if self._wrong_size_frames < WRONG_SIZE_FRAMES:
+                self._publish(MOVING, MESSAGE_WAITING_CAMERA)
+            else:
+                self._publish(ERROR, "Camera dă {}x{}, profilul cere {}x{}.".format(
+                    frame.shape[1], frame.shape[0], expected[1], expected[0]))
             return
+        self._wrong_size_frames = 0
         if gate is None:
             self._inspect(inspector, frame, generation)
             return

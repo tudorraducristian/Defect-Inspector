@@ -1,12 +1,14 @@
 """Check the station before photos: the zone, a cross at its centre, the light and a score.
 
-  station_check.py --object piulita-m10 [--data data]
+  station_check.py [--profile profiles/piulita-m10] [--auto-exposure]
 
+The zone and the camera come from the profile, so a light that has no photos yet can be checked.
 A window shows the camera with the zone of interest, the band where the light is measured and a
 cross at the centre. Every few seconds it writes on the image, and prints, the brightness of the
-zone's border, how much its sides differ and, if profiles/<object> exists, the score of the piece.
-Esc closes it. Laptop only.
+zone's border, how much its sides differ and the score of the piece. --auto-exposure leaves the
+exposure to the camera instead of the profile's value. Esc closes it. Laptop only.
 """
+import json
 import argparse
 import sys
 import threading
@@ -16,7 +18,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from defect_inspector.camera import CameraWorker, load_station
+from defect_inspector.backends import load_backend
+from defect_inspector.camera import CameraWorker, settings_for_this_machine
+from defect_inspector.inspector import Inspector
+from defect_inspector.profile import load_profile
 
 MARGIN = 40
 WINDOW = "statia"
@@ -34,22 +39,19 @@ def border_brightness(gray, roi, margin=MARGIN):
     return float(zone[band].mean()), {name: float(part.mean()) for name, part in zip(SIDES, parts)}
 
 
-def _load_inspector(object_id):
-    folder = Path("profiles") / object_id
-    if not (folder / "model.onnx").exists():
-        return None
-    from defect_inspector.backends import load_backend
-    from defect_inspector.inspector import Inspector
-    from defect_inspector.profile import load_profile
-    return Inspector(load_profile(folder), load_backend("ort-cpu", str(folder / "model.onnx")))
+def check_settings(fields, auto_exposure):
+    """Camera settings and zone from a profile.json; with auto_exposure the camera sets its own exposure."""
+    settings = settings_for_this_machine(fields.get("camera"))
+    if auto_exposure:
+        settings = settings._replace(exposure=None)
+    return settings, fields.get("roi")
 
 
 def _measure(frame, roi, inspector):
     mean, sides = border_brightness(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), roi)
     text = "fundal {:.1f}  laturi {:.1f}".format(mean, max(sides.values()) - min(sides.values()))
-    if inspector is not None:
-        verdict = inspector.inspect(frame)
-        text += "  scor {:.3f} / prag {:.3f}  {}".format(verdict.score, verdict.threshold, verdict.label)
+    verdict = inspector.inspect(frame)
+    text += "  scor {:.3f} / prag {:.3f}  {}".format(verdict.score, verdict.threshold, verdict.label)
     return text
 
 
@@ -68,11 +70,12 @@ def _draw(frame, roi, text):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--object", required=True)
-    parser.add_argument("--data", type=Path, default=Path("data"))
+    parser.add_argument("--profile", type=Path, default=Path("profiles/piulita-m10"))
+    parser.add_argument("--auto-exposure", action="store_true")
     args = parser.parse_args(argv)
-    station = load_station(args.data / args.object / "station.json")
-    inspector = _load_inspector(args.object)
+    fields = json.loads((args.profile / "profile.json").read_text(encoding="utf-8"))
+    settings, roi = check_settings(fields, args.auto_exposure)
+    inspector = Inspector(load_profile(args.profile), load_backend("ort-cpu", str(args.profile / "model.onnx")))
     state = {"frame": None, "text": "masor...", "running": True}
     lock = threading.Lock()
 
@@ -84,13 +87,13 @@ def main(argv=None):
             if frame is None:
                 time.sleep(0.2)
                 continue
-            text = _measure(frame, station.roi, inspector)
+            text = _measure(frame, roi, inspector)
             print(time.strftime("%H:%M:%S"), text, flush=True)
             with lock:
                 state["text"] = text
             time.sleep(1.0)
 
-    camera = CameraWorker(station.camera)
+    camera = CameraWorker(settings)
     camera.start()
     threading.Thread(target=measure_forever, daemon=True).start()
     cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
@@ -102,7 +105,7 @@ def main(argv=None):
                 with lock:
                     state["frame"] = latest[0].copy()
                     text = state["text"]
-                cv2.imshow(WINDOW, _draw(latest[0], station.roi, text))
+                cv2.imshow(WINDOW, _draw(latest[0], roi, text))
             if cv2.waitKey(30) == 27 or cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) < 1:
                 return 0
     finally:
