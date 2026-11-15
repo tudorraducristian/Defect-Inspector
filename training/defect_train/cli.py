@@ -61,6 +61,8 @@ def main(argv=None):
     parser.add_argument("--train-steps", type=int, default=70000)
     parser.add_argument("--image-size", type=int, default=256)
     parser.add_argument("--no-autoencoder", action="store_true")
+    parser.add_argument("--light-jitter", action="store_true",
+                        help="vary brightness, contrast and colour of the training images, for stations without fixed light")
     parser.add_argument("--require-gpu", action="store_true")
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--station", type=Path, help="station.json of the dataset; background.jpg sits next to it")
@@ -78,6 +80,7 @@ def main(argv=None):
         use_autoencoder=not args.no_autoencoder,
         train_steps=args.train_steps,
         num_workers=args.num_workers,
+        light_jitter=args.light_jitter,
     )
     parts = train(config, progress=_print_progress)
     net = to_anomaly_net(parts)
@@ -88,6 +91,7 @@ def main(argv=None):
     metrics["train_steps"] = args.train_steps
     metrics["image_size"] = args.image_size
     metrics["use_autoencoder"] = config.use_autoencoder
+    metrics["light_jitter"] = config.light_jitter
     (args.out / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
 
     images = np.concatenate([

@@ -47,3 +47,8 @@ def test_notebook_code_cells_compile_once_shell_lines_are_replaced():
     for cell in read_notebook().cells:
         if cell.cell_type == "code":
             compile(without_shell_commands(cell.source), "cell", "exec")
+
+
+def test_notebook_has_the_light_jitter_field():
+    text = "".join(c.source for c in read_notebook().cells)
+    assert "LIGHT_JITTER = False" in text and "--light-jitter" in text

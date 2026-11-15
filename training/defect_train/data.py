@@ -82,6 +82,11 @@ _jitter = transforms.RandomChoice([
 ])
 
 
+# Light variation for every image the teacher and student see, so a change of room light is not
+# learned as an anomaly. Our addition, not in EfficientAD; see the lights design, D34.
+_light_jitter = transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2, hue=0.02)
+
+
 def _to_tensor(rgb01):
     return torch.from_numpy(rgb01.transpose(2, 0, 1))
 
@@ -89,18 +94,23 @@ def _to_tensor(rgb01):
 class TrainImages(Dataset):
     """Return (clean, augmented); like train_transform in EfficientAD, see NOTICE."""
 
-    def __init__(self, paths, image_size):
+    def __init__(self, paths, image_size, light_jitter=False):
         self.paths = list(paths)
         self.image_size = image_size
+        self.light_jitter = light_jitter
 
     def __len__(self):
         return len(self.paths)
 
     def __getitem__(self, index):
         frame = read_image(self.paths[index])
-        clean = to_model_input(frame, self.image_size, IMAGENET_MEAN, IMAGENET_STD)[0]
         rgb = _to_tensor(to_rgb01(frame, self.image_size))
-        return torch.from_numpy(clean), _normalize(_jitter(rgb))
+        if self.light_jitter:
+            rgb = _light_jitter(rgb)
+            clean = _normalize(rgb)
+        else:
+            clean = torch.from_numpy(to_model_input(frame, self.image_size, IMAGENET_MEAN, IMAGENET_STD)[0])
+        return clean, _normalize(_jitter(rgb))
 
 
 class PenaltyImages(Dataset):

@@ -72,3 +72,17 @@ def test_penalty_images_finds_nested_files_and_crops(penalty_folder):
 def test_empty_penalty_folder_raises_clear_error(tmp_path):
     with pytest.raises(DatasetError, match="penalty"):
         PenaltyImages(tmp_path, 32)
+
+
+def test_without_light_jitter_the_clean_image_is_unchanged(tiny_image_file):
+    clean, _ = TrainImages([tiny_image_file], 64)[0]
+    expected = to_model_input(cv2.imread(str(tiny_image_file)), 64, IMAGENET_MEAN, IMAGENET_STD)[0]
+    assert np.abs(clean.numpy() - expected).max() < 1e-6
+
+
+def test_light_jitter_changes_the_clean_image(tiny_image_file):
+    import torch
+    torch.manual_seed(0)
+    images = TrainImages([tiny_image_file], 64, light_jitter=True)
+    seen = [images[0][0] for _ in range(5)]
+    assert any(not torch.allclose(seen[0], other) for other in seen[1:])

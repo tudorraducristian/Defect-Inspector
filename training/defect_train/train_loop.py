@@ -24,6 +24,7 @@ HARD_LOSS_QUANTILE = 0.999
 MAP_QUANTILE_START = 0.9
 MAP_QUANTILE_END = 0.995
 CHECKPOINT_NAME = "checkpoint.pt"
+IDENTITY_DEFAULTS = {"light_jitter": False}
 
 
 class CheckpointMismatch(Exception):
@@ -41,6 +42,7 @@ class TrainConfig(NamedTuple):
     checkpoint_every: int = 2000
     seed: int = 42
     num_workers: int = 4
+    light_jitter: bool = False
 
 
 class TrainedParts(NamedTuple):
@@ -146,7 +148,8 @@ def _load_checkpoint(path, identity, device):
         return None
     checkpoint = torch.load(path, map_location=device)
     for key, value in identity.items():
-        if checkpoint[key] != value:
+        # A checkpoint from before light_jitter existed was trained without it.
+        if checkpoint.get(key, IDENTITY_DEFAULTS.get(key)) != value:
             raise CheckpointMismatch(
                 "{} belongs to another training ({} differs); use a new output folder".format(
                     path, key))
@@ -169,6 +172,7 @@ def train(config, progress=print):
         "fingerprint": _fingerprint(root, splits.train + splits.val),
         "image_size": config.image_size,
         "use_autoencoder": config.use_autoencoder,
+        "light_jitter": config.light_jitter,
     }
     checkpoint = _load_checkpoint(checkpoint_path, identity, device)
     start_step = checkpoint["step"] if checkpoint else 0
@@ -189,7 +193,7 @@ def train(config, progress=print):
 
     loader_options = {"batch_size": 1, "num_workers": config.num_workers,
                       "pin_memory": device.type == "cuda"}
-    train_images = TrainImages(splits.train, config.image_size)
+    train_images = TrainImages(splits.train, config.image_size, light_jitter=config.light_jitter)
     trained_parameters = itertools.chain(
         student.parameters(), autoencoder.parameters() if autoencoder is not None else [])
     optimizer = torch.optim.Adam(trained_parameters, lr=BASE_LEARNING_RATE,
@@ -203,8 +207,9 @@ def train(config, progress=print):
         teacher_mean = checkpoint["teacher_mean"]
         teacher_std = checkpoint["teacher_std"]
     else:
+        # Measured on the images as they are, so the normalization does not depend on the variation.
         teacher_mean, teacher_std = _teacher_normalization(
-            teacher, DataLoader(train_images, **loader_options), device)
+            teacher, DataLoader(TrainImages(splits.train, config.image_size), **loader_options), device)
 
     if start_step < config.train_steps:
         endless = dict(loader_options, shuffle=True, persistent_workers=config.num_workers > 0)
