@@ -123,6 +123,23 @@
 
     select:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 
+    .table-photo {
+      width: 100%;
+      min-height: 44px;
+      margin-top: 12px;
+      padding: 8px 12px;
+      background: var(--surface-raised);
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .table-photo:disabled { opacity: 0.5; cursor: wait; }
+
+    .table-photo:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
     .note { margin: 6px 0 0; font-size: 0.875rem; color: var(--muted); overflow-wrap: anywhere; }
 
     .note[data-kind="problem"] { color: #fdba74; }
@@ -241,6 +258,8 @@
         <select id="profile"></select>
         <p class="note" id="profile-note" role="alert"></p>
         <p class="note" id="profile-errors" data-kind="problem"></p>
+        <button type="button" class="table-photo" id="background">Poza mesei goale</button>
+        <p class="note" id="background-note">Apasă cu masa goală, când se schimbă lumina.</p>
       </div>
 
       <div class="verdict" id="verdict" data-tone="neutral" aria-live="polite">
@@ -417,6 +436,21 @@
           activating = false;
           select.disabled = false;
         });
+    });
+
+    var tableButton = byId("background");
+    tableButton.addEventListener("click", function () {
+      var note = byId("background-note");
+      tableButton.disabled = true;
+      note.dataset.kind = "";
+      note.textContent = "Fac poza mesei.";
+      getJson("/api/background", {method: "POST"}, ACTIVATE_TIMEOUT_MS)
+        .then(function () { note.textContent = "Poza mesei e nouă. Pune o piesă sub cameră."; })
+        .catch(function (error) {
+          note.dataset.kind = "problem";
+          note.textContent = error.message;
+        })
+        .then(function () { tableButton.disabled = false; });
     });
 
     image.addEventListener("error", function () {

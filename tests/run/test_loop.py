@@ -403,3 +403,21 @@ def test_loop_thread_reaches_a_result_and_stops():
     finally:
         rig.loop.stop()
     assert not rig.loop._thread.is_alive()
+
+
+def test_frame_at_the_old_size_waits_for_the_camera():
+    small = cv2.resize(PIECE, (48, 32))
+    camera = FakeCamera(small)
+    backend = FakeBackend()
+    profile = make_profile()._replace(camera={"width": 64, "height": 64})
+    loop = InspectionLoop(camera)
+    loop.set_inspector(Inspector(profile, backend), profile, fast_gate())
+    for _ in range(3):
+        loop.step()
+    assert loop.state()["status"] == "MOVING"
+    assert "camer" in loop.state()["message"].lower()
+    assert backend.calls == 0
+    camera.show(PIECE)
+    for _ in range(10):
+        loop.step()
+    assert loop.state()["status"] == "RESULT"

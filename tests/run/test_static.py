@@ -42,3 +42,8 @@ def test_page_asks_for_no_icon_it_does_not_have():
 def test_verdict_is_announced_and_motion_can_be_turned_off():
     text = INDEX.read_text(encoding="utf-8")
     assert 'aria-live="polite"' in text and "prefers-reduced-motion" in text
+
+
+def test_page_can_take_a_new_table_photo():
+    text = INDEX.read_text(encoding="utf-8")
+    assert 'id="background"' in text and '"/api/background"' in text

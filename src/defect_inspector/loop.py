@@ -27,9 +27,17 @@ MESSAGES = {
     RESULT: "",
 }
 MESSAGE_ANALYZING = "Analizez piesa."
+MESSAGE_WAITING_CAMERA = "Aștept camera."
 JPEG_QUALITY = 80
 ZONE_COLOR = (0, 200, 0)
 STEP_PAUSE_S = 0.02
+
+
+def _expected_shape(profile):
+    """The (height, width) the profile's camera gives, or None when the profile does not say."""
+    camera = getattr(profile, "camera", None) or {}
+    width, height = camera.get("width"), camera.get("height")
+    return (height, width) if width and height else None
 
 
 class InspectionLoop:
@@ -179,6 +187,14 @@ class InspectionLoop:
         if frame_id == self._last_frame_id:
             return
         self._last_frame_id = frame_id
+        expected = _expected_shape(profile)
+        if expected is not None and frame.shape[:2] != expected:
+            # Right after a profile is chosen the camera reopens; frames at the old size still arrive.
+            if gate is not None:
+                gate.reset()
+            self._inspected = False
+            self._publish(MOVING, MESSAGE_WAITING_CAMERA)
+            return
         if gate is None:
             self._inspect(inspector, frame, generation)
             return
